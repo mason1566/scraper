@@ -1,5 +1,4 @@
 const puppeteer = require('puppeteer');
-const fs = require('node:fs');
 
 async function getData() {
     try {
@@ -29,22 +28,11 @@ async function getData() {
         const data = await page.evaluate(() => window.require.config.params);
         // console.log(data);
         console.dir(data.args, { depth: null });
-        writeJsonData(data.matchheader?.matchId, JSON.stringify(data));
 
         await browser.close();
     } catch (error) {
         console.error(error);
     }
-}
-
-function writeJsonData(name, jsonData) {
-  fs.writeFile(`/Users/masonjohnson/Projects/web/scraping/json/${name}.json`, jsonData, err => {
-    if (err) {
-      console.error(err);
-    } else {
-      // file written successfully
-    }
-  });
 }
 
 getData();
