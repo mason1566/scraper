@@ -1,8 +1,8 @@
 const puppeteer = require('puppeteer');
+const { Pool } = require('pg');
 
-async function getData() {
+async function getData(URL) {
     try {
-        const URL = "https://www.whoscored.com/matches/1903225/live/england-premier-league-2025-2026-tottenham-manchester-united"
         const browser = await puppeteer.launch();
 
         const page = await browser.newPage();
@@ -35,4 +35,32 @@ async function getData() {
     }
 }
 
-getData();
+// Setup PostgreSQL connection
+const pool = new Pool({
+  user: 'soccer',
+  host: 'localhost',
+  database: 'soccer',
+  password: 'soccer',
+  port: 5432,
+});
+
+async function queryDB() {
+  const client = await pool.connect();
+
+  try {
+    const res = await client.query(
+      'SELECT COUNT(*) FROM whoscored'
+    );
+    console.log(res);
+  } 
+  catch (err) {
+    console.err(err);
+  } 
+  finally {
+    client.release();
+  }
+}
+
+const URL = "https://www.whoscored.com/matches/1903225/live/england-premier-league-2025-2026-tottenham-manchester-united";
+// getData(URL);
+queryDB();
