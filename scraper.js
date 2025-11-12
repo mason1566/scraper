@@ -2,7 +2,7 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import UserAgent from 'user-agents';
 import { Pool } from 'pg';
-import fs, { read, write } from 'fs';
+import fs from 'fs';
 
 
 /* POSTGRESQL */
@@ -16,7 +16,7 @@ const pool = new Pool({
 });
 
 // insertWhoscoredData(data) Implementation
-async function insertWhoscoredData(data) {
+async function insertWhoscoredData(data, client) {
     return;
 } 
 
@@ -24,10 +24,20 @@ async function insertWhoscoredData(data) {
 /* WEB SCRAPING */
 // Web Scraper Configuration
 puppeteer.use(StealthPlugin());
+const UA = new UserAgent();
+
 
 // scrapeWhoscoredMatchPage(URL) Implementation
-async function scrapeWhoscoredMatchPage(URL) {
-    return;
+async function scrapeWhoscoredMatchPage(URL, page) {
+    try {
+        await page.goto(URL, { waitUntil: 'domcontentloaded' });
+
+        const html = await page.content();
+        
+        console.log("Successful query of page: ", URL);
+    } catch (err) {
+        console.error(err);
+    }
 }
 
 
@@ -57,7 +67,7 @@ function readNextScrapeId() {
         const data = fs.readFileSync('/Users/masonjohnson/Projects/web/scraping/env.json',
             'utf8',
         );
-        return JSON.parse(data);
+        return JSON.parse(data)?.nextScrapeId || START_ID;
     } catch (err) {
         console.error('Error in readNextScrapeId:', err);
     }
@@ -69,5 +79,55 @@ const BASE_URL = "https://www.whoscored.com/matches/";
 const START_ID = 1;
 const MIN_ID = 1;
 
+const MIN_DELAY_MS = 3000;
+const MAX_DELAY_MS = 45000;
 
-/* MAIN SCRAPE LOOP */
+function randDelay() {
+  return Math.floor(Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1)) + MIN_DELAY_MS;
+}
+
+try {
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled'
+        ]
+    });
+
+    const context = await browser.createBrowserContext()
+    const page = await context.newPage();
+
+    await page.emulate({
+        userAgent: UA.toString(),
+        viewport: { width: 1280, height: 720 }
+    });
+
+    const dbClient = await pool.connect();
+
+    let idCounter = readNextScrapeId();
+
+    /* MAIN SCRAPE LOOP */
+    while (true) {
+        try {
+            scrapeWhoscoredMatchPage(`${BASE_URL}${idCounter}`, page);
+
+            // wait between 30-45 seconds to confuse bot-detectors
+            await new Promise(r => setTimeout(r, randDelay()));
+
+            idCounter++;
+        } catch (err) {
+            writeNextScrapeId(idCounter);
+            console.error('Error while scraping:', err);
+            console.log(`Failed on id ${idCounter}`);
+            break;
+        }
+    }
+} catch (err) {
+    console.error('Error in main loop:', err);
+} finally {
+    dbClient.release();
+    await page.close();
+    await browser.close();
+}
