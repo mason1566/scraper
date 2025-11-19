@@ -16,8 +16,21 @@ const pool = new Pool({
 });
 
 // insertWhoscoredData(data) Implementation
-async function insertWhoscoredData(data, client) {
-    return;
+async function insertWhoscoredData(id, data, client) {
+    try {
+        let name = `${data.matchheader.input[2]} vs ${data.matchheader.input[3]} ${data.matchheader.input[4]}`;
+        let hasEventData = (data.args.matchCentreData?.events != null);
+
+        console.log(name, id, hasEventData);
+
+        const res = await client.query(
+            `INSERT INTO whoscored VALUES ($1, $2, $3, $4)`,
+            [id, name, hasEventData, data]
+        );
+
+    } catch (err) {
+        console.error('Error in insertWhoscoredData:', err);
+    }
 } 
 
 
@@ -33,10 +46,13 @@ async function scrapeWhoscoredMatchPage(URL, page) {
         await page.goto(URL, { waitUntil: 'domcontentloaded' });
 
         const html = await page.content();
-        
+
+        const data = await page.evaluate(() => window.require.config.params);
         console.log("Successful query of page: ", URL);
+
+        return data;
     } catch (err) {
-        console.error(err);
+        throw new Error('Error in scrapeWhoscoredMatchPage:', err);
     }
 }
 
@@ -75,12 +91,13 @@ function readNextScrapeId() {
 
 
 /* UTIL HELPERS */
-const BASE_URL = "https://www.whoscored.com/matches/";
+const BASE_URL_START = "https://www.whoscored.com/matches/";
+const BASE_URL_END = "/live/";
 const START_ID = 1;
 const MIN_ID = 1;
 
-const MIN_DELAY_MS = 3000;
-const MAX_DELAY_MS = 45000;
+const MIN_DELAY_MS = 500;
+const MAX_DELAY_MS = 1500;
 
 function randDelay() {
   return Math.floor(Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1)) + MIN_DELAY_MS;
@@ -111,23 +128,26 @@ try {
     /* MAIN SCRAPE LOOP */
     while (true) {
         try {
-            scrapeWhoscoredMatchPage(`${BASE_URL}${idCounter}`, page);
+            let data = await scrapeWhoscoredMatchPage(`${BASE_URL_START}${idCounter}${BASE_URL_END}`, page);
+
+            await insertWhoscoredData(idCounter, data, dbClient);
 
             // wait between 30-45 seconds to confuse bot-detectors
             await new Promise(r => setTimeout(r, randDelay()));
 
             idCounter++;
+            writeNextScrapeId(idCounter); // Keep track of which match to scrape next
         } catch (err) {
-            writeNextScrapeId(idCounter);
             console.error('Error while scraping:', err);
             console.log(`Failed on id ${idCounter}`);
-            break;
+
+            dbClient.release();
+            await page.close();
+            await browser.close();
+
+            throw new Error('Error in main loop:', err)
         }
     }
 } catch (err) {
     console.error('Error in main loop:', err);
-} finally {
-    dbClient.release();
-    await page.close();
-    await browser.close();
 }
